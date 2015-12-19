@@ -35,19 +35,20 @@ public class PathFinderImpl extends PathFinder {
  
 
   /**
-   * Helper-type to support the handling with the four given directions 
-   * (north, east, south and west).
+   * Helper-type to support the handling with the eight given directions 
+   * (north, east, south, west and all headings between them).
    */
   enum Direction {
 
-    NORTH(0, 1), EAST(1, 0), SOUTH(0, -1), WEST(-1, 0);
+    NORTH(0), NORTHEAST(45),
+    EAST(90), SOUTHEAST(135),
+    SOUTH(180), SOUTHWEST(225),
+    WEST(270), NORTHWEST(315);
 
-    private int deltaX;
-    private int deltaY;
+    private int deg;
 
-    Direction(int deltaX, int deltaY) {
-      this.deltaX = deltaX;
-      this.deltaY = deltaY;
+    Direction(int deg) {
+      this.deg = deg;
     }
 
     /**
@@ -56,7 +57,7 @@ public class PathFinderImpl extends PathFinder {
      * @return The next x-position when moving with this direction.
      */
     int nextX(int actualX) {
-      return actualX + deltaX;
+      return actualX + (int) Math.round(Math.sin(Math.toRadians(deg)));
     }
 
     /**
@@ -65,7 +66,7 @@ public class PathFinderImpl extends PathFinder {
      * @return The next y-position when moving with this direction.
      */
     int nextY(int actualY) {
-      return actualY + deltaY;
+      return actualY + (int) Math.round(Math.cos(Math.toRadians(deg)));
     }
 
     /**
@@ -80,6 +81,14 @@ public class PathFinderImpl extends PathFinder {
         return NORTH;
       } else if (this == WEST) {
         return EAST;
+      } else if (this == NORTHEAST) {
+        return SOUTHWEST;
+      } else if (this == SOUTHEAST) {
+        return NORTHWEST;
+      } else if (this == SOUTHWEST) {
+        return NORTHEAST;
+      } else if (this == NORTHWEST) {
+        return SOUTHEAST;
       } else {
         throw new Error("Bad Direction!");
       }
@@ -125,30 +134,96 @@ public class PathFinderImpl extends PathFinder {
    * @return The path found.
    */
   public ArrayList<Point> findPath(int x0, int y0, int x1, int y1) {
-    
-    
-    // Just a Test (TODO: to delete):
-    path.add(new Point(2, 2));
-    path.add(new Point(150, 50));
-    path.add(new Point(198, 198));
-    
-    // TODO Implement here... 
-    
+   for(int x = 0; x < LEN_X; x++) {
+     for(int y = 0; y < LEN_Y; y++) {
+       if (x == x0 && y == y0) {
+         distances[x][y] = 0.0;
+       }
+       else {
+   	     distances[x][y] = Double.MAX_VALUE;
+       }
+       VertexPos v = new VertexPos(x, y);
+       Entry<Double, VertexPos> locator = q.insert(distances[x][y], v);
+       locators[x][y] = locator;
+   	 }
+   }
+   
+   while (!q.isEmpty()) {
+   	Entry<Double, VertexPos> location = q.removeMin();
+   	int ux = location.getValue().x;
+   	int uy = location.getValue().y;
+   	if (ux == x1 && uy == y1) {
+   		generatePath(ux,uy);
+   		break;
+   	}
+   	int zx = 0;
+   	int zy = 0;
+   	
+   	// Aim for the goal from the current position.
+   	int[] aim = {(x1 - ux), (y1 - uy)};
+   	double aim_val = Math.sqrt(aim[0] * aim[0] + aim[1] * aim[1]);
+   	double[] aim_normalized = {aim[0] / aim_val, aim[1] / aim_val};
 
-//          // showing actual position on map:
-//          actualX = zx;
-//          actualY = zy;
-//          try {
-//            Thread.sleep(1); // 0: much fastest;  >1 : slower, but more details
-//          } catch (InterruptedException e) {}
-//        }
-//      }
-//    }
+   	// The angle of the current aim in degrees
+    double angle = 90 - Math.toDegrees(Math.atan2(aim_normalized[1], aim_normalized[0]));
+    if (angle < 0) angle += 360;
+    if (angle >= 360) angle -= 360;
+
+    // Define an offset for the directions array depending on the aim.
+    // If we head north (angle = 0), we want to have NORTHWEST (7), NORTH (0), NORTHEAST (1),
+    // For northwest (angle = 45), we want to have NORTH (0), NORTHEAST (1), EAST (2), etc...
+    int offset = 0;
+    if (angle < 90) {
+      offset = -1;
+      if (angle > 45) offset++;
+    }
+    else if (angle < 180) {
+      offset = 1;
+      if (angle > 135) offset++;
+    } 
+    else if (angle < 270) {
+      offset = 3;
+      if (angle > 225) offset++;
+    }
+    else if (angle < 360) {
+   	  offset = 5;
+      if (angle > 315) offset++;
+    }
+        
+    // Build an array with the three directions towards the goal, use the offset defined above.
+    Direction[] all_directions = Direction.values();
+    Direction[] directions = new Direction[3];
+    for (int k = 0; k < directions.length; k++) {
+      // Make sure the  index is not negative
+      if (k + offset < 0) {
+    	offset = all_directions.length - 1;
+      }
+      directions[k] = all_directions[(k + offset) % all_directions.length];    		
+    }
     
-    setChanged();
-    notifyObservers();
-    return path;
-  } 
+    // Swap the middle and first directions, so we head towards the "center" and
+    // only try and navigate around an obstacle if necessary.
+    Direction temp = directions[0];
+    directions[0] = directions[1];
+    directions[1] = temp;
+    
+    for (Direction dir : directions) {
+      zx = Math.max(Math.min(dir.nextX(ux), LEN_X - 1), 0);
+      zy = Math.max(Math.min(dir.nextY(uy), LEN_Y - 1), 0);
+            
+      double r = distances[ux][uy] + map.calcWeight(ux, uy, zx, zy);
+      if (r < distances[zx][zy]) {
+    	distances[zx][zy] = r;
+    	parents[zx][zy] = dir.getOpposite();
+    	q.replaceKey(locators[zx][zy], r);
+      }
+    }
+  }
+    
+  setChanged();
+  notifyObservers();
+  return path;
+} 
 
   private void generatePath(int endX, int endY) {
     path.add(0, new Point(endX, endY));

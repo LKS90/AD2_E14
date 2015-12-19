@@ -131,7 +131,17 @@ public class MapViewer extends JFrame {
       path.add(new Point(0, 0));
       mapView.updatePath(path);
       pf.addObserver(this);
-      pf.findPath(2, 2, map.getHeight() - 2, map.getWidth() - 2);
+      double r = Math.random();
+      double x_scale;
+      double y_scale;
+      if (r >= 0.5) {
+        x_scale = 0;
+        y_scale = r;
+      } else {
+        x_scale = r;
+        y_scale = 0;
+      }
+      pf.findPath(map.getHeight()/2, map.getWidth()/2, (int) (map.getHeight() * y_scale), (int) (map.getWidth() * x_scale));
     }
 
     public void update(Observable arg0, Object arg1) {
